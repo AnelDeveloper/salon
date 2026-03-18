@@ -157,17 +157,17 @@ export default function Home() {
       {/* ═══════ NAVBAR ═══════ */}
       <nav style={{
         position: "fixed", top: 0, left: 0, right: 0, zIndex: 50,
-        background: scrolled ? "rgba(255,255,255,0.97)" : "transparent",
-        backdropFilter: scrolled ? "blur(20px)" : "none",
-        borderBottom: scrolled ? "1px solid #f3e8ff" : "1px solid transparent",
+        background: (scrolled || mobileMenu) ? "rgba(255,255,255,0.97)" : "transparent",
+        backdropFilter: (scrolled || mobileMenu) ? "blur(20px)" : "none",
+        borderBottom: (scrolled || mobileMenu) ? "1px solid #f3e8ff" : "1px solid transparent",
         transition: "all 0.4s ease",
-        boxShadow: scrolled ? "0 4px 30px rgba(147,51,234,0.06)" : "none",
+        boxShadow: (scrolled || mobileMenu) ? "0 4px 30px rgba(147,51,234,0.06)" : "none",
       }}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", height: 68 }}>
             <a href="#hero" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
-              <div style={{ width: 38, height: 38, background: scrolled ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "rgba(255,255,255,0.2)", backdropFilter: "blur(8px)", borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 18, transition: "all 0.4s", boxShadow: scrolled ? "0 4px 12px rgba(147,51,234,0.3)" : "none" }}>A</div>
-              <span style={{ fontSize: 21, fontWeight: 800, color: scrolled ? "#1f1f1f" : "#fff", transition: "color 0.4s" }}>Salon <span style={{ color: scrolled ? "#9333ea" : "#e9d5ff" }}>Anel</span></span>
+              <div style={{ width: 38, height: 38, background: (scrolled || mobileMenu) ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "rgba(255,255,255,0.2)", backdropFilter: "blur(8px)", borderRadius: 11, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontWeight: 800, fontSize: 18, transition: "all 0.4s", boxShadow: (scrolled || mobileMenu) ? "0 4px 12px rgba(147,51,234,0.3)" : "none" }}>A</div>
+              <span style={{ fontSize: 21, fontWeight: 800, color: (scrolled || mobileMenu) ? "#1f1f1f" : "#fff", transition: "color 0.4s" }}>Salon <span style={{ color: (scrolled || mobileMenu) ? "#9333ea" : "#e9d5ff" }}>Anel</span></span>
             </a>
             <div className="desktop-nav" style={{ display: "flex", alignItems: "center", gap: 2 }}>
               {navLinks.map(([l,h]) => (
@@ -181,7 +181,7 @@ export default function Home() {
                 onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.background = scrolled ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "rgba(255,255,255,0.15)"; }}
               >Zakazi termin</a>
             </div>
-            <button onClick={() => setMobileMenu(!mobileMenu)} className="mobile-menu-btn" style={{ display: "none", background: "none", border: "none", cursor: "pointer", padding: 8, color: scrolled ? "#6b7280" : "#fff", transition: "color 0.4s" }}>
+            <button onClick={() => setMobileMenu(!mobileMenu)} className="mobile-menu-btn" style={{ display: "none", background: "none", border: "none", cursor: "pointer", padding: 8, color: (scrolled || mobileMenu) ? "#6b7280" : "#fff", transition: "color 0.4s" }}>
               <svg width={24} height={24} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 {mobileMenu ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /> : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />}
               </svg>
