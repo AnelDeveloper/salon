@@ -491,7 +491,7 @@ export default function Home() {
             </div>
 
           ) : schedule.length > 0 ? (
-            <div style={{
+            <div className="booking-card" style={{
               background: "#fff", border: "1px solid #f3e8ff", borderRadius: 28, padding: "36px 32px",
               boxShadow: "0 16px 48px rgba(147,51,234,0.08)",
               minHeight: 320,
