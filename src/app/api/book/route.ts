@@ -18,6 +18,12 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // Generate cancel token (base64 encoded booking data)
+    const cancelData = JSON.stringify({ name, phone, email, service, price, day, time });
+    const cancelToken = Buffer.from(cancelData).toString("base64url");
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || req.nextUrl.origin;
+    const cancelUrl = `${baseUrl}/cancel?token=${cancelToken}`;
+
     /* ───── Email za vlasnika salona ───── */
     const ownerHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #faf5ff; border-radius: 16px; overflow: hidden;">
@@ -42,7 +48,7 @@ export async function POST(req: NextRequest) {
       </div>
     `;
 
-    /* ───── Email za korisnika (potvrda) ───── */
+    /* ───── Email za korisnika (potvrda + cancel link) ───── */
     const customerHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #faf5ff; border-radius: 16px; overflow: hidden;">
         <div style="background: linear-gradient(135deg, #9333ea, #7c3aed); padding: 32px; text-align: center;">
@@ -50,9 +56,9 @@ export async function POST(req: NextRequest) {
           <p style="color: rgba(255,255,255,0.8); margin: 8px 0 0; font-size: 14px;">Frizerski Salon Anel</p>
         </div>
         <div style="padding: 32px;">
-          <p style="color: #374151; font-size: 16px; margin: 0 0 24px;">Poštovani/a <strong>${name}</strong>,</p>
+          <p style="color: #374151; font-size: 16px; margin: 0 0 24px;">Postovani/a <strong>${name}</strong>,</p>
           <p style="color: #6b7280; font-size: 14px; line-height: 1.7; margin: 0 0 24px;">
-            Vaša rezervacija je uspješno primljena. Evo detalja vašeg termina:
+            Vasa rezervacija je uspjesno primljena. Evo detalja vaseg termina:
           </p>
           <div style="background: #fff; border-radius: 12px; padding: 24px; border: 1px solid #f3e8ff;">
             <table style="width: 100%; border-collapse: collapse;">
@@ -62,17 +68,35 @@ export async function POST(req: NextRequest) {
               <tr><td style="padding: 10px 0; color: #9ca3af; font-size: 14px;">Termin</td><td style="padding: 10px 0; color: #1f2937; font-size: 18px; font-weight: 700;">${time}</td></tr>
             </table>
           </div>
-          <p style="color: #6b7280; font-size: 14px; line-height: 1.7; margin: 24px 0 0;">
-            Kontaktirat ćemo vas za dodatnu potvrdu. Ako želite otkazati ili promijeniti termin,
-            javite nam se na telefon <strong>+387 61 123 456</strong>.
+
+          <!-- Warning box -->
+          <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 18px; margin: 24px 0;">
+            <p style="color: #92400e; font-size: 13px; line-height: 1.7; margin: 0;">
+              <strong>&#9888; Vazna napomena:</strong> Otkazivanje termina je moguce najkasnije <strong>24 sata</strong> prije zakazanog termina. U slucaju nepojavljivanja ili kasnog otkazivanja, pri sljedecem zakazivanju bit ce potrebna avansna uplata.
+            </p>
+          </div>
+
+          <p style="color: #6b7280; font-size: 14px; line-height: 1.7; margin: 0 0 24px;">
+            Ako zelite otkazati svoj termin, kliknite na dugme ispod ili nas kontaktirajte na telefon <strong>+387 62 123 701</strong>.
           </p>
-          <p style="color: #6b7280; font-size: 14px; margin: 16px 0 0;">
+
+          <!-- Cancel button -->
+          <div style="text-align: center; margin: 28px 0 16px;">
+            <a href="${cancelUrl}" style="display: inline-block; background: linear-gradient(135deg, #ef4444, #dc2626); color: #fff; padding: 14px 36px; border-radius: 12px; font-weight: 700; font-size: 14px; text-decoration: none; box-shadow: 0 4px 14px rgba(239,68,68,0.3);">
+              Otkazi termin
+            </a>
+          </div>
+          <p style="color: #d1d5db; font-size: 11px; text-align: center; margin: 0;">
+            Otkazivanje je moguce najkasnije 24h prije termina.
+          </p>
+
+          <p style="color: #6b7280; font-size: 14px; margin: 24px 0 0;">
             Hvala vam na povjerenju!<br/>
             <strong style="color: #9333ea;">Salon Anel</strong>
           </p>
         </div>
         <div style="background: #f3e8ff; padding: 20px 32px; text-align: center;">
-          <p style="color: #7e22ce; font-size: 13px; margin: 0;">Frizerski Salon Anel | Ulica Primjer bb, Sarajevo</p>
+          <p style="color: #7e22ce; font-size: 13px; margin: 0;">Frizerski Salon Anel | Kenana Brkanica bb, Koblja Glava</p>
         </div>
       </div>
     `;
@@ -96,6 +120,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Email error:", error);
-    return NextResponse.json({ error: "Greška pri slanju emaila" }, { status: 500 });
+    return NextResponse.json({ error: "Greska pri slanju emaila" }, { status: 500 });
   }
 }

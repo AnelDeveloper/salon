@@ -9,34 +9,37 @@ interface DaySchedule { date: string; label: string; dayName: string; dayNum: st
 
 /* ───────── DATA ───────── */
 const MONTHS = ["januar","februar","mart","april","maj","juni","juli","august","septembar","oktobar","novembar","decembar"];
-const DAYS = ["Ned","Pon","Uto","Sri","Čet","Pet","Sub"];
-const DAYS_FULL = ["Nedjelja","Ponedjeljak","Utorak","Srijeda","Četvrtak","Petak","Subota"];
+const DAYS = ["Ned","Pon","Uto","Sri","Cet","Pet","Sub"];
+const DAYS_FULL = ["Nedjelja","Ponedjeljak","Utorak","Srijeda","Cetvrtak","Petak","Subota"];
 
 function generateSchedule(): DaySchedule[] {
   const days: DaySchedule[] = [];
   const today = new Date();
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 45; i++) {
     const d = new Date(today); d.setDate(today.getDate() + i);
     if (d.getDay() === 0) continue;
     const slots: TimeSlot[] = [];
     const end = d.getDay() === 6 ? 15 : 18;
     for (let h = 9; h < end; h++) {
-      slots.push({ time: `${h.toString().padStart(2,"0")}:00`, booked: Math.random() < 0.35 });
-      slots.push({ time: `${h.toString().padStart(2,"0")}:30`, booked: Math.random() < 0.3 });
+      const isPast = i === 0 && h <= new Date().getHours();
+      slots.push({ time: `${h.toString().padStart(2,"0")}:00`, booked: isPast || Math.random() < 0.35 });
+      slots.push({ time: `${h.toString().padStart(2,"0")}:30`, booked: isPast || Math.random() < 0.3 });
     }
     const num = d.getDate().toString();
     const mon = MONTHS[d.getMonth()];
-    days.push({ date: d.toISOString().split("T")[0], label: `${DAYS_FULL[d.getDay()]}, ${num}. ${mon}`, dayName: DAYS[d.getDay()], dayNum: num, month: mon.substring(0,3), slots });
+    const fullMon = MONTHS[d.getMonth()];
+    const year = d.getFullYear();
+    days.push({ date: d.toISOString().split("T")[0], label: `${DAYS_FULL[d.getDay()]}, ${num}. ${mon}`, dayName: DAYS[d.getDay()], dayNum: num, month: fullMon, slots, year } as DaySchedule & { year: number });
   }
   return days;
 }
 
 const services = [
-  { name: "Muško šišanje", price: "15 KM", duration: "30 min", img: "/service-beard-trim.jpg" },
-  { name: "Žensko šišanje", price: "25 KM", duration: "45 min", img: "/service-female-haircut.jpg" },
+  { name: "Musko sisanje", price: "15 KM", duration: "30 min", img: "/service-beard-trim.jpg" },
+  { name: "Zensko sisanje", price: "25 KM", duration: "45 min", img: "/service-female-haircut.jpg" },
   { name: "Farbanje kose", price: "40 KM", duration: "90 min", img: "/service-hair-coloring.jpg" },
   { name: "Pranje i feniranje", price: "15 KM", duration: "30 min", img: "/service-hair-wash.jpg" },
-  { name: "Šišanje + brada", price: "20 KM", duration: "45 min", img: "/service-male-haircut.jpg" },
+  { name: "Sisanje + brada", price: "20 KM", duration: "45 min", img: "/service-male-haircut.jpg" },
   { name: "Styling / frizura", price: "30 KM", duration: "60 min", img: "/service-styling.jpg" },
 ];
 
@@ -84,6 +87,9 @@ export default function Home() {
   const [sending, setSending] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [bookingStep, setBookingStep] = useState(1);
+  const [calendarMonth, setCalendarMonth] = useState(0);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   const sRef = useScrollAnimation();
   const aRef = useScrollAnimation();
@@ -96,19 +102,27 @@ export default function Home() {
     return () => window.removeEventListener("scroll", h);
   }, []);
 
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Group schedule days by month for calendar navigation
+  const monthGroups = schedule.reduce<{ label: string; startIdx: number; count: number }[]>((acc, day, idx) => {
+    const mLabel = day.month.charAt(0).toUpperCase() + day.month.slice(1);
+    const last = acc[acc.length - 1];
+    if (last && last.label === mLabel) { last.count++; }
+    else { acc.push({ label: mLabel, startIdx: idx, count: 1 }); }
+    return acc;
+  }, []);
+
+  const handleFormValidate = useCallback(() => {
     const errs: Record<string, string> = {};
     if (!name.trim()) errs.name = "Ime je obavezno";
     if (!phone.trim()) errs.phone = "Broj telefona je obavezan";
-    else if (!/^\+387\d{8,9}$/.test(phone.replace(/\s/g, ""))) errs.phone = "Unesite validan +387 broj (npr. +387 61 123 456)";
+    else if (!/^\+387\d{8,9}$/.test(phone.replace(/\s/g, ""))) errs.phone = "Unesite validan +387 broj (npr. +387 62 123 701)";
     if (!email.trim()) errs.email = "Email je obavezan";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errs.email = "Unesite validnu email adresu";
-    if (!selectedService) errs.service = "Odaberite uslugu";
-    if (!selectedSlot) errs.slot = "Odaberite termin";
     setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    return Object.keys(errs).length === 0;
+  }, [name, phone, email]);
 
+  const handleSubmit = useCallback(async () => {
     setSending(true);
     try {
       const res = await fetch("/api/book", {
@@ -117,7 +131,7 @@ export default function Home() {
         body: JSON.stringify({
           name,
           phone,
-          email: email || undefined,
+          email,
           service: selectedService,
           price: services.find(s => s.name === selectedService)?.price,
           day: schedule[selectedDay]?.label,
@@ -126,14 +140,16 @@ export default function Home() {
       });
       if (!res.ok) throw new Error("API error");
       setSubmitted(true);
+      setShowConfirmDialog(false);
     } catch {
       setSubmitted(true);
+      setShowConfirmDialog(false);
     } finally {
       setSending(false);
     }
   }, [name, phone, email, selectedService, selectedSlot, schedule, selectedDay]);
 
-  const navLinks = [["Početna","#hero"],["Usluge","#usluge"],["O nama","#onama"],["Zakazivanje","#booking"],["Kontakt","#kontakt"]];
+  const navLinks = [["Pocetna","#hero"],["Usluge","#usluge"],["O nama","#onama"],["Zakazivanje","#booking"],["Kontakt","#kontakt"]];
 
   return (
     <div style={{ minHeight: "100vh", background: "#fff", overflowX: "hidden" }}>
@@ -163,7 +179,7 @@ export default function Home() {
               <a href="#booking" style={{ marginLeft: 10, background: scrolled ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "rgba(255,255,255,0.15)", backdropFilter: "blur(8px)", border: scrolled ? "none" : "1px solid rgba(255,255,255,0.25)", color: "#fff", padding: "10px 22px", borderRadius: 11, fontSize: 14, fontWeight: 600, textDecoration: "none", transition: "all 0.3s", boxShadow: scrolled ? "0 4px 16px rgba(147,51,234,0.25)" : "none" }}
                 onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.background = scrolled ? "linear-gradient(135deg, #7c3aed, #6d28d9)" : "rgba(255,255,255,0.25)"; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.background = scrolled ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "rgba(255,255,255,0.15)"; }}
-              >Zakaži termin</a>
+              >Zakazi termin</a>
             </div>
             <button onClick={() => setMobileMenu(!mobileMenu)} className="mobile-menu-btn" style={{ display: "none", background: "none", border: "none", cursor: "pointer", padding: 8, color: scrolled ? "#6b7280" : "#fff", transition: "color 0.4s" }}>
               <svg width={24} height={24} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -179,7 +195,7 @@ export default function Home() {
                   onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                 >{l}</a>
               ))}
-              <a href="#booking" onClick={() => setMobileMenu(false)} style={{ display: "block", textAlign: "center", marginTop: 8, background: "#9333ea", color: "#fff", padding: "12px", borderRadius: 11, fontWeight: 600, textDecoration: "none" }}>Zakaži termin</a>
+              <a href="#booking" onClick={() => setMobileMenu(false)} style={{ display: "block", textAlign: "center", marginTop: 8, background: "#9333ea", color: "#fff", padding: "12px", borderRadius: 11, fontWeight: 600, textDecoration: "none" }}>Zakazi termin</a>
             </div>
           )}
         </div>
@@ -211,7 +227,7 @@ export default function Home() {
               </h1>
 
               <p className="hero-fade-delay-2" style={{ fontSize: 17, color: "rgba(255,255,255,0.75)", lineHeight: 1.8, marginBottom: 40, maxWidth: 440 }}>
-                Profesionalne frizerske usluge u ugodnom ambijentu. Vaša ljepota je naš prioritet. Zakazite termin online brzo i jednostavno.
+                Profesionalne frizerske usluge u ugodnom ambijentu. Vasa ljepota je nas prioritet. Zakazite termin online brzo i jednostavno.
               </p>
 
               <div className="hero-fade-delay-2" style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 52 }}>
@@ -225,7 +241,7 @@ export default function Home() {
                   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 12px 40px rgba(0,0,0,0.2)"; }}
                   onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 8px 30px rgba(0,0,0,0.15)"; }}
                 >
-                  Zakaži termin
+                  Zakazi termin
                   <svg width={16} height={16} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
                 </a>
                 <a href="#usluge" style={{
@@ -300,11 +316,11 @@ export default function Home() {
       <section id="usluge" style={{ padding: "80px 0 100px", background: "#fff" }} ref={sRef}>
         <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px" }}>
           <div className="anim" style={{ textAlign: "center", marginBottom: 60 }}>
-            <p style={{ color: "#9333ea", fontWeight: 700, fontSize: 13, textTransform: "uppercase", letterSpacing: 4, marginBottom: 12 }}>Šta nudimo</p>
-            <h2 style={{ fontSize: 42, fontWeight: 800, color: "#111827", marginBottom: 16 }}>Naše usluge</h2>
+            <p style={{ color: "#9333ea", fontWeight: 700, fontSize: 13, textTransform: "uppercase", letterSpacing: 4, marginBottom: 12 }}>Sta nudimo</p>
+            <h2 style={{ fontSize: 42, fontWeight: 800, color: "#111827", marginBottom: 16 }}>Nase usluge</h2>
             <div style={{ width: 60, height: 4, background: "linear-gradient(90deg, #9333ea, #c084fc)", borderRadius: 2, margin: "0 auto 18px" }} />
             <p style={{ color: "#9ca3af", maxWidth: 480, margin: "0 auto", fontSize: 15, lineHeight: 1.7 }}>
-              Širok spektar profesionalnih frizerskih usluga za muškarce i žene uz kvalitetne proizvode.
+              Sirok spektar profesionalnih frizerskih usluga za muskarce i zene uz kvalitetne proizvode.
             </p>
           </div>
 
@@ -349,7 +365,7 @@ export default function Home() {
                       onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(147,51,234,0.35)"; }}
                       onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(147,51,234,0.2)"; }}
                     >
-                      Zakaži
+                      Zakazi
                       <svg width={12} height={12} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" /></svg>
                     </a>
                   </div>
@@ -370,7 +386,7 @@ export default function Home() {
                 {[
                   { n: "5+", l: "Godina iskustva", bg: "linear-gradient(135deg, #9333ea, #7c3aed)", c: "#fff", lc: "rgba(255,255,255,0.8)" },
                   { n: "500+", l: "Zadovoljnih klijenata", bg: "#fff", c: "#9333ea", lc: "#9ca3af" },
-                  { n: "100%", l: "Posvećenost", bg: "#fff", c: "#9333ea", lc: "#9ca3af" },
+                  { n: "100%", l: "Posvecenost", bg: "#fff", c: "#9333ea", lc: "#9ca3af" },
                   { n: "6", l: "Vrsta usluga", bg: "linear-gradient(135deg, #7c3aed, #6d28d9)", c: "#fff", lc: "rgba(255,255,255,0.8)" },
                 ].map((item, i) => (
                   <div key={item.l} className={`anim delay-${i + 1}`}
@@ -393,13 +409,13 @@ export default function Home() {
             {/* Right - text */}
             <div className="anim delay-2">
               <p style={{ color: "#9333ea", fontWeight: 700, fontSize: 13, textTransform: "uppercase", letterSpacing: 4, marginBottom: 12 }}>O nama</p>
-              <h2 style={{ fontSize: 42, fontWeight: 800, color: "#111827", marginBottom: 10 }}>Vaša ljepota,<br/>naša strast</h2>
+              <h2 style={{ fontSize: 42, fontWeight: 800, color: "#111827", marginBottom: 10 }}>Vasa ljepota,<br/>nasa strast</h2>
               <div style={{ width: 60, height: 4, background: "linear-gradient(90deg, #9333ea, #c084fc)", borderRadius: 2, marginBottom: 28 }} />
               <p style={{ color: "#6b7280", lineHeight: 1.8, marginBottom: 16, fontSize: 15 }}>
-                Frizerski salon Anel je mjesto gdje se tradicija spaja sa modernim trendovima. Naš tim profesionalaca posvećen je tome da svaki klijent izađe sa osmijehom na licu.
+                Frizerski salon Anel je mjesto gdje se tradicija spaja sa modernim trendovima. Nas tim profesionalaca posvecen je tome da svaki klijent izadje sa osmijehom na licu.
               </p>
               <p style={{ color: "#6b7280", lineHeight: 1.8, marginBottom: 32, fontSize: 15 }}>
-                Koristimo vrhunske proizvode i najnovije tehnike kako bismo vam pružili najbolji mogući rezultat.
+                Koristimo vrhunske proizvode i najnovije tehnike kako bismo vam pruzili najbolji moguci rezultat.
               </p>
               <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                 {["Kvalitetni profesionalni proizvodi","Iskusni i certificirani frizeri","Ugodna i prijatna atmosfera","Online zakazivanje termina"].map((item, i) => (
@@ -418,138 +434,312 @@ export default function Home() {
 
       {/* ═══════ BOOKING ═══════ */}
       <section id="booking" style={{ padding: "100px 0", background: "#fff" }} ref={bRef}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 24px" }}>
-          <div className="anim" style={{ textAlign: "center", marginBottom: 60 }}>
+        <div style={{ maxWidth: 700, margin: "0 auto", padding: "0 24px" }}>
+          <div className="anim" style={{ textAlign: "center", marginBottom: 48 }}>
             <p style={{ color: "#9333ea", fontWeight: 700, fontSize: 13, textTransform: "uppercase", letterSpacing: 4, marginBottom: 12 }}>Rezervacija</p>
             <h2 style={{ fontSize: 42, fontWeight: 800, color: "#111827", marginBottom: 16 }}>Zakazite svoj termin</h2>
             <div style={{ width: 60, height: 4, background: "linear-gradient(90deg, #9333ea, #c084fc)", borderRadius: 2, margin: "0 auto 18px" }} />
-            <p style={{ color: "#9ca3af", maxWidth: 480, margin: "0 auto", fontSize: 15 }}>Odaberite dan, termin i uslugu, te unesite vaše podatke. Kontaktirat ćemo vas za potvrdu.</p>
+            <p style={{ color: "#9ca3af", maxWidth: 480, margin: "0 auto", fontSize: 15 }}>Pratite korake ispod da zakazete vas termin brzo i jednostavno.</p>
           </div>
 
+          {/* Progress bar */}
+          {!submitted && schedule.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0, marginBottom: 48 }}>
+              {["Dan","Termin","Usluga","Podaci"].map((label, i) => {
+                const step = i + 1;
+                const active = bookingStep === step;
+                const done = bookingStep > step;
+                return (
+                  <div key={label} style={{ display: "flex", alignItems: "center" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+                      <div style={{
+                        width: 40, height: 40, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                        background: done ? "linear-gradient(135deg, #22c55e, #16a34a)" : active ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "#f3f4f6",
+                        color: done || active ? "#fff" : "#9ca3af",
+                        fontWeight: 800, fontSize: 14,
+                        transition: "all 0.4s cubic-bezier(0.16,1,0.3,1)",
+                        boxShadow: active ? "0 6px 20px rgba(147,51,234,0.3)" : done ? "0 4px 12px rgba(34,197,94,0.25)" : "none",
+                      }}>
+                        {done ? <svg width={18} height={18} fill="none" stroke="#fff" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg> : step}
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: active ? "#9333ea" : done ? "#22c55e" : "#9ca3af" }}>{label}</span>
+                    </div>
+                    {i < 3 && <div style={{ width: 60, height: 3, borderRadius: 2, background: done ? "#22c55e" : "#f3f4f6", margin: "0 8px", marginBottom: 20, transition: "background 0.4s" }} />}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {submitted ? (
-            <div style={{ maxWidth: 440, margin: "0 auto", textAlign: "center", animation: "scaleIn 0.5s ease" }}>
+            <div style={{ maxWidth: 480, margin: "0 auto", textAlign: "center", animation: "scaleIn 0.5s ease" }}>
               <div style={{ background: "#fff", border: "2px solid #86efac", borderRadius: 28, padding: 52, boxShadow: "0 16px 48px rgba(0,0,0,0.06)" }}>
                 <div style={{ width: 76, height: 76, background: "linear-gradient(135deg, #22c55e, #16a34a)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 24px", boxShadow: "0 8px 24px rgba(34,197,94,0.3)" }}>
                   <svg width={36} height={36} fill="none" stroke="#fff" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                 </div>
-                <h3 style={{ fontSize: 24, fontWeight: 800, color: "#15803d", marginBottom: 12 }}>Termin uspješno zakazan!</h3>
-                <p style={{ color: "#16a34a", fontSize: 15, marginBottom: 4 }}><strong>{name}</strong>, vaš termin za <strong>{selectedService}</strong></p>
-                <p style={{ color: "#16a34a", fontSize: 15, marginBottom: 24 }}>zakazan za <strong>{schedule[selectedDay]?.label}</strong> u <strong>{selectedSlot}</strong>.</p>
-                <p style={{ fontSize: 13, color: "#9ca3af", marginBottom: 28 }}>Kontaktirat ćemo vas na {phone} za potvrdu.</p>
-                <button onClick={() => { setSubmitted(false); setSelectedSlot(null); setSelectedService(""); setName(""); setPhone(""); setEmail(""); }}
+                <h3 style={{ fontSize: 24, fontWeight: 800, color: "#15803d", marginBottom: 12 }}>Termin uspjesno zakazan!</h3>
+                <p style={{ color: "#16a34a", fontSize: 15, marginBottom: 4 }}><strong>{name}</strong>, vas termin za <strong>{selectedService}</strong></p>
+                <p style={{ color: "#16a34a", fontSize: 15, marginBottom: 8 }}>zakazan za <strong>{schedule[selectedDay]?.label}</strong> u <strong>{selectedSlot}</strong>.</p>
+                <p style={{ fontSize: 13, color: "#9ca3af", marginBottom: 8 }}>Potvrda je poslana na <strong>{email}</strong></p>
+                <p style={{ fontSize: 13, color: "#9ca3af", marginBottom: 28 }}>Kontaktirat cemo vas na <strong>{phone}</strong> za potvrdu.</p>
+                <button onClick={() => { setSubmitted(false); setSelectedSlot(null); setSelectedService(""); setName(""); setPhone(""); setEmail(""); setBookingStep(1); }}
                   style={{ background: "linear-gradient(135deg, #9333ea, #7c3aed)", color: "#fff", padding: "13px 30px", borderRadius: 14, fontWeight: 700, fontSize: 15, border: "none", cursor: "pointer", boxShadow: "0 6px 20px rgba(147,51,234,0.3)", transition: "all 0.3s" }}
                   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 8px 28px rgba(147,51,234,0.4)"; }}
                   onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(147,51,234,0.3)"; }}
-                >Zakaži novi termin</button>
+                >Zakazi novi termin</button>
               </div>
             </div>
+
           ) : schedule.length > 0 ? (
-            <div className="booking-grid anim visible" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: 36 }}>
-              <div>
-                <StepHeader num={1} text="Odaberite dan" />
-                <div className="days-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10, marginBottom: 40 }}>
-                  {schedule.map((day, idx) => (
-                    <button key={day.date} onClick={() => { setSelectedDay(idx); setSelectedSlot(null); }}
-                      style={{
-                        padding: "16px 8px", borderRadius: 18, textAlign: "center", border: "none", cursor: "pointer",
-                        transition: "all 0.3s cubic-bezier(0.16,1,0.3,1)",
-                        background: selectedDay === idx ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "#fff",
-                        color: selectedDay === idx ? "#fff" : "#4b5563",
-                        boxShadow: selectedDay === idx ? "0 8px 28px rgba(147,51,234,0.35)" : "0 2px 8px rgba(0,0,0,0.04)",
-                        transform: selectedDay === idx ? "scale(1.06)" : "scale(1)",
-                      }}>
-                      <p style={{ fontSize: 11, fontWeight: 600, opacity: 0.6 }}>{day.dayName}</p>
-                      <p style={{ fontSize: 26, fontWeight: 800, margin: "4px 0" }}>{day.dayNum}</p>
-                      <p style={{ fontSize: 11, fontWeight: 500, opacity: 0.6 }}>{day.month}</p>
-                    </button>
-                  ))}
-                </div>
+            <div style={{
+              background: "#fff", border: "1px solid #f3e8ff", borderRadius: 28, padding: "36px 32px",
+              boxShadow: "0 16px 48px rgba(147,51,234,0.08)",
+              minHeight: 320,
+            }}>
 
-                <StepHeader num={2} text="Odaberite termin" />
-                <div style={{ display: "flex", gap: 16, marginBottom: 14, fontSize: 12, color: "#9ca3af" }}>
-                  <Legend color="#fff" border="#e5e7eb" label="Slobodan" />
-                  <Legend color="#fef2f2" border="#fecaca" label="Zauzet" />
-                  <Legend color="#9333ea" border="#9333ea" label="Odabran" />
-                </div>
-                {errors.slot && <ErrMsg text={errors.slot} />}
-                <div className="slots-grid" style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginBottom: 40 }}>
-                  {schedule[selectedDay]?.slots.map(slot => (
-                    <button key={slot.time} disabled={slot.booked} onClick={() => setSelectedSlot(slot.time)}
-                      style={{
-                        padding: "11px 0", borderRadius: 12, fontSize: 14, fontWeight: 600, border: "none",
-                        cursor: slot.booked ? "not-allowed" : "pointer",
-                        transition: "all 0.25s cubic-bezier(0.16,1,0.3,1)",
-                        background: slot.booked ? "#fef2f2" : selectedSlot === slot.time ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "#fff",
-                        color: slot.booked ? "#fca5a5" : selectedSlot === slot.time ? "#fff" : "#4b5563",
-                        textDecoration: slot.booked ? "line-through" : "none",
-                        boxShadow: selectedSlot === slot.time ? "0 4px 16px rgba(147,51,234,0.35)" : "0 1px 4px rgba(0,0,0,0.04)",
-                        transform: selectedSlot === slot.time ? "scale(1.06)" : "scale(1)",
-                      }}>
-                      {slot.time}
-                    </button>
-                  ))}
-                </div>
+              {/* ── STEP 1: Select Day ── */}
+              {bookingStep === 1 && (
+                <div style={{ animation: "fadeSlideIn 0.35s ease" }}>
+                  <StepHeader num={1} text="Odaberite dan" />
+                  <p style={{ color: "#9ca3af", fontSize: 14, marginBottom: 20, marginTop: -8 }}>Prikazani su dostupni termini za narednih 45 dana.</p>
 
-                <StepHeader num={3} text="Odaberite uslugu" />
-                {errors.service && <ErrMsg text={errors.service} />}
-                <div className="service-pick-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-                  {services.map((s, i) => (
-                    <button key={s.name} onClick={() => setSelectedService(s.name)}
-                      style={{
-                        padding: 18, borderRadius: 18, textAlign: "left", border: "none", cursor: "pointer",
-                        transition: "all 0.3s cubic-bezier(0.16,1,0.3,1)",
-                        background: selectedService === s.name ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "#fff",
-                        color: selectedService === s.name ? "#fff" : "#374151",
-                        boxShadow: selectedService === s.name ? "0 8px 28px rgba(147,51,234,0.35)" : "0 2px 8px rgba(0,0,0,0.04)",
-                        transform: selectedService === s.name ? "scale(1.03)" : "scale(1)",
-                      }}>
-                      <div style={{ color: selectedService === s.name ? "#e9d5ff" : "#9333ea", marginBottom: 8 }}><ServiceIcon index={i} color={selectedService === s.name ? "#e9d5ff" : "#9333ea"} /></div>
-                      <p style={{ fontWeight: 700, fontSize: 14 }}>{s.name}</p>
-                      <p style={{ fontSize: 12, marginTop: 4, opacity: 0.6 }}>{s.price} · {s.duration}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Form */}
-              <div>
-                <form onSubmit={handleSubmit} style={{
-                  background: "#fff", border: "1px solid #f3e8ff", borderRadius: 24, padding: 28,
-                  position: "sticky", top: 88,
-                  boxShadow: "0 16px 48px rgba(147,51,234,0.08)",
-                }}>
-                  <StepHeader num={4} text="Vaši podaci" />
-                  <Field label="Ime i prezime" req value={name} set={setName} err={errors.name} ph="Vaše ime i prezime" />
-                  <Field label="Broj telefona" req value={phone} set={setPhone} err={errors.phone} ph="+387 6X XXX XXX" type="tel" />
-                  <Field label="Email" req value={email} set={setEmail} err={errors.email} ph="email@primjer.ba" type="email" />
-
-                  <div style={{ background: "linear-gradient(135deg, #faf5ff, #f3e8ff)", borderRadius: 18, padding: 20, marginBottom: 22, border: "1px solid #ede9fe" }}>
-                    <p style={{ fontWeight: 700, fontSize: 14, color: "#374151", marginBottom: 14 }}>Pregled rezervacije</p>
-                    {[["Dan", schedule[selectedDay]?.label], ["Termin", selectedSlot], ["Usluga", selectedService], ["Cijena", services.find(s => s.name === selectedService)?.price]].map(([l, v]) => (
-                      <div key={l as string} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 8 }}>
-                        <span style={{ color: "#9ca3af" }}>{l}</span>
-                        <span style={{ fontWeight: 700, color: v ? (l === "Cijena" ? "#9333ea" : "#374151") : "#d1d5db" }}>{(v as string) || "—"}</span>
-                      </div>
+                  {/* Month tabs */}
+                  <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
+                    {monthGroups.map((mg, idx) => (
+                      <button key={mg.label + idx} onClick={() => setCalendarMonth(idx)}
+                        style={{
+                          padding: "8px 20px", borderRadius: 12, border: "none", cursor: "pointer",
+                          background: calendarMonth === idx ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "#faf5ff",
+                          color: calendarMonth === idx ? "#fff" : "#7c3aed",
+                          fontWeight: 700, fontSize: 13,
+                          transition: "all 0.25s",
+                          boxShadow: calendarMonth === idx ? "0 4px 14px rgba(147,51,234,0.3)" : "none",
+                        }}>
+                        {mg.label}
+                      </button>
                     ))}
                   </div>
 
-                  <button type="submit" disabled={sending} style={{
-                    width: "100%", background: sending ? "#c084fc" : "linear-gradient(135deg, #9333ea, #7c3aed)", color: "#fff", padding: "15px 0",
-                    borderRadius: 14, fontWeight: 700, fontSize: 15, border: "none", cursor: sending ? "wait" : "pointer",
-                    boxShadow: "0 8px 24px rgba(147,51,234,0.3)", transition: "all 0.3s",
-                    opacity: sending ? 0.8 : 1,
-                  }}
-                    onMouseEnter={e => { if (!sending) { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 10px 32px rgba(147,51,234,0.4)"; } }}
-                    onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(147,51,234,0.3)"; }}
-                  >{sending ? "Slanje..." : "Potvrdi rezervaciju"}</button>
-                </form>
-              </div>
+                  {/* Day cards */}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: 10, marginBottom: 28 }}>
+                    {(() => {
+                      const mg = monthGroups[calendarMonth];
+                      if (!mg) return null;
+                      return schedule.slice(mg.startIdx, mg.startIdx + mg.count).map((day, relIdx) => {
+                        const absIdx = mg.startIdx + relIdx;
+                        const freeSlots = day.slots.filter(s => !s.booked).length;
+                        return (
+                          <button key={day.date} onClick={() => { setSelectedDay(absIdx); setSelectedSlot(null); setBookingStep(2); }}
+                            style={{
+                              padding: "14px 6px", borderRadius: 16, textAlign: "center", border: "none", cursor: "pointer",
+                              transition: "all 0.3s cubic-bezier(0.16,1,0.3,1)",
+                              background: selectedDay === absIdx ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "#fff",
+                              color: selectedDay === absIdx ? "#fff" : "#4b5563",
+                              boxShadow: selectedDay === absIdx ? "0 8px 28px rgba(147,51,234,0.35)" : "0 2px 8px rgba(0,0,0,0.05)",
+                            }}
+                            onMouseEnter={e => { if (selectedDay !== absIdx) { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 8px 20px rgba(147,51,234,0.15)"; } }}
+                            onMouseLeave={e => { e.currentTarget.style.transform = "none"; if (selectedDay !== absIdx) e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.05)"; }}
+                          >
+                            <p style={{ fontSize: 11, fontWeight: 600, opacity: 0.6 }}>{day.dayName}</p>
+                            <p style={{ fontSize: 24, fontWeight: 800, margin: "2px 0" }}>{day.dayNum}</p>
+                            <p style={{ fontSize: 10, fontWeight: 600, color: selectedDay === absIdx ? "rgba(255,255,255,0.7)" : freeSlots > 6 ? "#22c55e" : freeSlots > 2 ? "#f59e0b" : "#ef4444" }}>
+                              {freeSlots} slob.
+                            </p>
+                          </button>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              {/* ── STEP 2: Select Time ── */}
+              {bookingStep === 2 && (
+                <div style={{ animation: "fadeSlideIn 0.35s ease" }}>
+                  <BackButton onClick={() => setBookingStep(1)} label="Nazad na odabir dana" />
+                  <StepHeader num={2} text="Odaberite termin" />
+
+                  {/* Selected day summary */}
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#faf5ff", border: "1px solid #f3e8ff", borderRadius: 12, padding: "10px 18px", marginBottom: 24 }}>
+                    <svg width={16} height={16} fill="none" stroke="#9333ea" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: "#7c3aed" }}>{schedule[selectedDay]?.label}</span>
+                  </div>
+
+                  <div style={{ display: "flex", gap: 16, marginBottom: 14, fontSize: 12, color: "#9ca3af" }}>
+                    <Legend color="#fff" border="#e5e7eb" label="Slobodan" />
+                    <Legend color="#fef2f2" border="#fecaca" label="Zauzet" />
+                    <Legend color="#9333ea" border="#9333ea" label="Odabran" />
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: 8, marginBottom: 28 }}>
+                    {schedule[selectedDay]?.slots.map(slot => (
+                      <button key={slot.time} disabled={slot.booked}
+                        onClick={() => { setSelectedSlot(slot.time); setBookingStep(3); }}
+                        style={{
+                          padding: "13px 0", borderRadius: 12, fontSize: 14, fontWeight: 600, border: "none",
+                          cursor: slot.booked ? "not-allowed" : "pointer",
+                          transition: "all 0.25s cubic-bezier(0.16,1,0.3,1)",
+                          background: slot.booked ? "#fef2f2" : selectedSlot === slot.time ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "#fff",
+                          color: slot.booked ? "#fca5a5" : selectedSlot === slot.time ? "#fff" : "#4b5563",
+                          textDecoration: slot.booked ? "line-through" : "none",
+                          boxShadow: selectedSlot === slot.time ? "0 4px 16px rgba(147,51,234,0.35)" : "0 1px 4px rgba(0,0,0,0.04)",
+                        }}
+                        onMouseEnter={e => { if (!slot.booked && selectedSlot !== slot.time) { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 6px 16px rgba(147,51,234,0.15)"; } }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = "none"; if (selectedSlot !== slot.time) e.currentTarget.style.boxShadow = "0 1px 4px rgba(0,0,0,0.04)"; }}
+                      >
+                        {slot.time}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── STEP 3: Select Service ── */}
+              {bookingStep === 3 && (
+                <div style={{ animation: "fadeSlideIn 0.35s ease" }}>
+                  <BackButton onClick={() => setBookingStep(2)} label="Nazad na odabir termina" />
+                  <StepHeader num={3} text="Odaberite uslugu" />
+
+                  {/* Summary badges */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
+                    <SummaryBadge icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />} text={schedule[selectedDay]?.label || ""} />
+                    <SummaryBadge icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />} text={selectedSlot || ""} />
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
+                    {services.map((s, i) => (
+                      <button key={s.name} onClick={() => { setSelectedService(s.name); setBookingStep(4); }}
+                        style={{
+                          padding: 20, borderRadius: 18, textAlign: "left", border: "none", cursor: "pointer",
+                          transition: "all 0.3s cubic-bezier(0.16,1,0.3,1)",
+                          background: selectedService === s.name ? "linear-gradient(135deg, #9333ea, #7c3aed)" : "#fff",
+                          color: selectedService === s.name ? "#fff" : "#374151",
+                          boxShadow: selectedService === s.name ? "0 8px 28px rgba(147,51,234,0.35)" : "0 2px 8px rgba(0,0,0,0.05)",
+                        }}
+                        onMouseEnter={e => { if (selectedService !== s.name) { e.currentTarget.style.transform = "translateY(-3px)"; e.currentTarget.style.boxShadow = "0 10px 24px rgba(147,51,234,0.15)"; } }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = "none"; if (selectedService !== s.name) e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.05)"; }}
+                      >
+                        <div style={{ color: selectedService === s.name ? "#e9d5ff" : "#9333ea", marginBottom: 10 }}><ServiceIcon index={i} color={selectedService === s.name ? "#e9d5ff" : "#9333ea"} /></div>
+                        <p style={{ fontWeight: 700, fontSize: 15 }}>{s.name}</p>
+                        <p style={{ fontSize: 12, marginTop: 4, opacity: 0.6 }}>{s.duration}</p>
+                        <p style={{ fontSize: 18, fontWeight: 800, marginTop: 8, color: selectedService === s.name ? "#e9d5ff" : "#9333ea" }}>{s.price}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── STEP 4: Personal Info ── */}
+              {bookingStep === 4 && (
+                <div style={{ animation: "fadeSlideIn 0.35s ease" }}>
+                  <BackButton onClick={() => setBookingStep(3)} label="Nazad na odabir usluge" />
+                  <StepHeader num={4} text="Vasi podaci" />
+
+                  {/* Summary badges */}
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
+                    <SummaryBadge icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />} text={schedule[selectedDay]?.label || ""} />
+                    <SummaryBadge icon={<path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />} text={selectedSlot || ""} />
+                    <SummaryBadge icon={<circle cx={6} cy={6} r={3} />} text={selectedService} />
+                  </div>
+
+                  <form onSubmit={e => { e.preventDefault(); if (handleFormValidate()) setShowConfirmDialog(true); }}>
+                    <Field label="Ime i prezime" req value={name} set={setName} err={errors.name} ph="Vase ime i prezime" />
+                    <Field label="Broj telefona" req value={phone} set={setPhone} err={errors.phone} ph="+387 6X XXX XXX" type="tel" />
+                    <Field label="Email" req value={email} set={setEmail} err={errors.email} ph="email@primjer.ba" type="email" />
+
+                    <div style={{ background: "linear-gradient(135deg, #faf5ff, #f3e8ff)", borderRadius: 18, padding: 20, marginBottom: 22, border: "1px solid #ede9fe" }}>
+                      <p style={{ fontWeight: 700, fontSize: 14, color: "#374151", marginBottom: 14 }}>Pregled rezervacije</p>
+                      {[["Dan", schedule[selectedDay]?.label], ["Termin", selectedSlot], ["Usluga", selectedService], ["Cijena", services.find(s => s.name === selectedService)?.price]].map(([l, v]) => (
+                        <div key={l as string} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 8 }}>
+                          <span style={{ color: "#9ca3af" }}>{l}</span>
+                          <span style={{ fontWeight: 700, color: v ? (l === "Cijena" ? "#9333ea" : "#374151") : "#d1d5db" }}>{(v as string) || "—"}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <button type="submit" style={{
+                      width: "100%", background: "linear-gradient(135deg, #9333ea, #7c3aed)", color: "#fff", padding: "15px 0",
+                      borderRadius: 14, fontWeight: 700, fontSize: 15, border: "none", cursor: "pointer",
+                      boxShadow: "0 8px 24px rgba(147,51,234,0.3)", transition: "all 0.3s",
+                    }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 10px 32px rgba(147,51,234,0.4)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(147,51,234,0.3)"; }}
+                    >Potvrdi rezervaciju</button>
+                  </form>
+                </div>
+              )}
             </div>
+
           ) : (
-            <p style={{ textAlign: "center", color: "#9ca3af", padding: 48 }}>Učitavanje termina...</p>
+            <p style={{ textAlign: "center", color: "#9ca3af", padding: 48 }}>Ucitavanje termina...</p>
           )}
         </div>
       </section>
+
+      {/* ═══════ CONFIRM DIALOG ═══════ */}
+      {showConfirmDialog && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 100,
+          background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          padding: 24, animation: "fadeIn 0.25s ease",
+        }} onClick={() => setShowConfirmDialog(false)}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: "#fff", borderRadius: 28, padding: "36px 32px", maxWidth: 480, width: "100%",
+            boxShadow: "0 30px 80px rgba(0,0,0,0.2)", animation: "scaleIn 0.3s cubic-bezier(0.16,1,0.3,1)",
+          }}>
+            {/* Warning icon */}
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+              <div style={{ width: 64, height: 64, borderRadius: "50%", background: "linear-gradient(135deg, #fef3c7, #fde68a)", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 6px 20px rgba(251,191,36,0.25)" }}>
+                <svg width={32} height={32} fill="none" stroke="#d97706" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4.5c-.77-.833-2.694-.833-3.464 0L3.34 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+              </div>
+            </div>
+
+            <h3 style={{ fontSize: 20, fontWeight: 800, color: "#1f2937", textAlign: "center", marginBottom: 16 }}>Potvrda rezervacije</h3>
+
+            <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 16, padding: "18px 20px", marginBottom: 20 }}>
+              <p style={{ color: "#92400e", fontSize: 14, lineHeight: 1.7, margin: 0 }}>
+                <strong>Vazna napomena prije potvrde:</strong>
+              </p>
+              <ul style={{ color: "#92400e", fontSize: 13, lineHeight: 1.8, margin: "10px 0 0", paddingLeft: 18 }}>
+                <li>Otkazivanje termina je moguce <strong>najkasnije 24 sata</strong> prije zakazanog termina.</li>
+                <li>U slucaju nepojavljivanja ili kasnog otkazivanja, pri sljedecem zakazivanju bit ce potrebna <strong>avansna uplata</strong>.</li>
+                <li>Termin mozete otkazati putem <strong>linka u email potvrdi</strong> koju cemo vam poslati nakon rezervacije.</li>
+                <li>Vas email i broj telefona cuvamo u nasem sistemu za buduce rezervacije.</li>
+              </ul>
+            </div>
+
+            {/* Reservation summary in dialog */}
+            <div style={{ background: "#faf5ff", borderRadius: 14, padding: "14px 18px", marginBottom: 24, border: "1px solid #f3e8ff" }}>
+              {[["Dan", schedule[selectedDay]?.label], ["Termin", selectedSlot], ["Usluga", selectedService], ["Cijena", services.find(s => s.name === selectedService)?.price]].map(([l, v]) => (
+                <div key={l as string} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 6 }}>
+                  <span style={{ color: "#9ca3af" }}>{l}</span>
+                  <span style={{ fontWeight: 700, color: l === "Cijena" ? "#9333ea" : "#374151" }}>{(v as string) || "—"}</span>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", gap: 12 }}>
+              <button onClick={() => setShowConfirmDialog(false)} style={{
+                flex: 1, padding: "14px 0", borderRadius: 14, border: "2px solid #e5e7eb", background: "#fff",
+                color: "#6b7280", fontWeight: 700, fontSize: 14, cursor: "pointer", transition: "all 0.25s",
+              }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = "#d1d5db"; e.currentTarget.style.background = "#f9fafb"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = "#e5e7eb"; e.currentTarget.style.background = "#fff"; }}
+              >Odustani</button>
+              <button onClick={handleSubmit} disabled={sending} style={{
+                flex: 1, padding: "14px 0", borderRadius: 14, border: "none",
+                background: sending ? "#c084fc" : "linear-gradient(135deg, #9333ea, #7c3aed)",
+                color: "#fff", fontWeight: 700, fontSize: 14, cursor: sending ? "wait" : "pointer",
+                boxShadow: "0 6px 20px rgba(147,51,234,0.3)", transition: "all 0.25s",
+              }}
+                onMouseEnter={e => { if (!sending) { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 8px 28px rgba(147,51,234,0.4)"; } }}
+                onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(147,51,234,0.3)"; }}
+              >{sending ? "Slanje..." : "Potvrdi"}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ═══════ FOOTER ═══════ */}
       <footer id="kontakt" style={{ background: "linear-gradient(180deg, #1e1b4b, #0f0a2e)", color: "#fff", padding: "80px 0 40px" }}>
@@ -561,7 +751,7 @@ export default function Home() {
                 <span style={{ fontSize: 22, fontWeight: 800 }}>Salon <span style={{ color: "#a855f7" }}>Anel</span></span>
               </div>
               <p style={{ color: "#7c7c9a", fontSize: 14, lineHeight: 1.8, maxWidth: 300 }}>
-                Profesionalne frizerske usluge u ugodnom ambijentu. Posjetite nas i uvjerite se zašto su naši klijenti uvijek zadovoljni.
+                Profesionalne frizerske usluge u ugodnom ambijentu. Posjetite nas i uvjerite se zasto su nasi klijenti uvijek zadovoljni.
               </p>
             </div>
             <div>
@@ -580,8 +770,8 @@ export default function Home() {
             <div>
               <h4 style={{ color: "#a855f7", fontWeight: 700, fontSize: 13, textTransform: "uppercase", letterSpacing: 2, marginBottom: 22 }}>Kontakt</h4>
               {[
-                { icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />, text: "+387 61 123 456" },
-                { icon: <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></>, text: "Ulica Primjer bb, Sarajevo" },
+                { icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />, text: "+387 62 123 701" },
+                { icon: <><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></>, text: "Kenana Brkanica bb, Koblja Glava" },
                 { icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />, text: "Pon-Pet: 09-18h | Sub: 09-15h" },
               ].map((item, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 14, color: "#7c7c9a", fontSize: 14, marginBottom: 16 }}>
@@ -594,7 +784,7 @@ export default function Home() {
             </div>
           </div>
           <div style={{ borderTop: "1px solid rgba(147,51,234,0.15)", paddingTop: 28, textAlign: "center", color: "#6b6b8a", fontSize: 13 }}>
-            &copy; 2025 Frizerski Salon Anel. Sva prava zadržana.
+            &copy; 2025 Frizerski Salon Anel. Sva prava zadrzana.
           </div>
         </div>
       </footer>
@@ -648,4 +838,32 @@ function Legend({ color, border, label }: { color: string; border: string; label
 
 function ErrMsg({ text }: { text: string }) {
   return <p style={{ color: "#ef4444", fontSize: 13, marginBottom: 10, fontWeight: 500 }}>{text}</p>;
+}
+
+function BackButton({ onClick, label }: { onClick: () => void; label: string }) {
+  return (
+    <button onClick={onClick} style={{
+      display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "none",
+      color: "#9333ea", fontSize: 14, fontWeight: 600, cursor: "pointer", padding: "0 0 18px",
+      transition: "all 0.25s",
+    }}
+      onMouseEnter={e => { e.currentTarget.style.color = "#7c3aed"; e.currentTarget.style.transform = "translateX(-3px)"; }}
+      onMouseLeave={e => { e.currentTarget.style.color = "#9333ea"; e.currentTarget.style.transform = "none"; }}
+    >
+      <svg width={18} height={18} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" /></svg>
+      {label}
+    </button>
+  );
+}
+
+function SummaryBadge({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div style={{
+      display: "inline-flex", alignItems: "center", gap: 8,
+      background: "#faf5ff", border: "1px solid #f3e8ff", borderRadius: 12, padding: "8px 16px",
+    }}>
+      <svg width={14} height={14} fill="none" stroke="#9333ea" viewBox="0 0 24 24">{icon}</svg>
+      <span style={{ fontSize: 13, fontWeight: 600, color: "#7c3aed" }}>{text}</span>
+    </div>
+  );
 }
